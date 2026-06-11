@@ -1,0 +1,43 @@
+--- a/drivers/soundwire/stream.c
++++ b/drivers/soundwire/stream.c
+@@ -2041,6 +2041,40 @@
+ 			goto alloc_error;
+ 
+ 		stream->m_rt_count++;
++	} else {
++		/*
++		 * A second DAI on the SAME bus is joining this stream (two
++		 * PDIs on one link, e.g. 4 mono amps split across two ALH
++		 * gateways on HP EliteBook X G2i). Append the new port(s)
++		 * at the tail and configure only them - the existing
++		 * port(s) must keep their config.
++		 */
++		struct sdw_port_runtime *p_rt;
++		unsigned int total = 0, idx = 0;
++
++		ret = sdw_master_port_alloc(m_rt, num_ports);
++		if (ret)
++			goto unlock;
++
++		list_for_each_entry(p_rt, &m_rt->port_list, port_node)
++			total++;
++
++		list_for_each_entry(p_rt, &m_rt->port_list, port_node) {
++			if (idx + num_ports >= total) {
++				ret = sdw_port_config(p_rt, port_config,
++						      idx + num_ports - total);
++				if (ret < 0)
++					goto unlock;
++			}
++			idx++;
++		}
++
++		ret = sdw_master_rt_config(m_rt, stream_config);
++		if (ret < 0)
++			goto unlock;
++
++		ret = sdw_config_stream(bus->dev, stream, stream_config, false);
++		goto unlock;
+ 	}
+ 
+ 	ret = sdw_master_rt_config(m_rt, stream_config);

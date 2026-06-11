@@ -1,0 +1,42 @@
+--- a/sound/soc/intel/boards/sof_sdw.c
++++ b/sound/soc/intel/boards/sof_sdw.c
+@@ -914,6 +914,7 @@
+ 		struct snd_soc_dai_link_component *platform;
+ 		int num_cpus = hweight32(sof_dai->link_mask[stream]);
+ 		int num_codecs = sof_dai->num_devs[stream];
++		bool split_amp_pdis = false;
+ 		int playback, capture;
+ 		int cur_link = 0;
+ 		int i = 0, j = 0;
+@@ -931,6 +932,21 @@
+ 			return -EINVAL;
+ 		}
+ 
++		/*
++		 * HP EliteBook X G2i: 4 TAS2783 mono amps aggregated on ONE
++		 * SoundWire link. Split them across two 2ch PDIs: the ALH
++		 * multi-gateway copier then duplicates the stereo stream to
++		 * both PDIs, and since the bus packs slaves by codec order
++		 * (amps pre-ordered L,R,L,R in hda.c) every amp's slot
++		 * carries its physical side -> true 4-speaker stereo.
++		 */
++		if (stream == SNDRV_PCM_STREAM_PLAYBACK && num_cpus == 1 &&
++		    num_codecs == 4 && sof_end->codec_info->part_id == 0x0000) {
++			split_amp_pdis = true;
++			num_cpus = 2;
++			dev_info(dev, "tas2783 4-amp link: splitting into 2 PDIs\n");
++		}
++
+ 		/* create stream name according to first link id */
+ 		if (ctx->append_dai_type)
+ 			name = devm_kasprintf(dev, GFP_KERNEL,
+@@ -964,7 +980,8 @@
+ 			if (!sof_end->dai_info->direction[stream])
+ 				continue;
+ 
+-			if (cur_link != sof_end->link_mask) {
++			if (cur_link != sof_end->link_mask ||
++			    (split_amp_pdis && j == 2)) {
+ 				int link_num = ffs(sof_end->link_mask) - 1;
+ 				int pin_num = intel_ctx->sdw_pin_index[link_num]++;
+ 

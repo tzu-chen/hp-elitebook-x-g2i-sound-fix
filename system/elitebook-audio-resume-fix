@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# EliteBook X G2i: TAS2783 amps come back from s2idle "green but silent"
+# (TI driver system-resume bug; runtime resume is fine). A SOF stack reload
+# fully restores them. Triggered by elitebook-audio-resume.service after
+# every resume. See ~tzuchen/Documents/tweaks/hp-elitebook-x-g2i-sound-fix/.
+sleep 3
+bash /usr/local/sbin/elitebook-sof-reload
+sleep 2
+amixer -c0 cset name='Pre Mixer Speaker Playback Volume' 45,45 || true
+amixer -c0 cset name='Post Mixer Speaker Playback Volume' 45,45 || true
+exit 0

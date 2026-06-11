@@ -1,0 +1,17 @@
+# Whitelist: only the files strictly needed to reproduce the stereo fix on
+# an identical machine are tracked. Everything else in this folder is local
+# development history (experiments, dead ends, logs, reference docs).
+/*
+!/.gitignore
+!/README.md
+!/install.sh
+!/post-reboot.sh
+!/build-modules.sh
+!/patches
+!/system
+!/kmod
+/kmod/*
+!/kmod/soundwire-bus.ko
+!/kmod/snd-sof-intel-hda-generic.ko
+!/kmod/snd-soc-sof-sdw.ko
+!/kmod/snd-soc-tas2783-sdw.ko

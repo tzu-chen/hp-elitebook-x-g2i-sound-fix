@@ -1,0 +1,12 @@
+[Unit]
+Description=EliteBook X G2i speaker recovery after resume (TAS2783 silent-after-s2idle)
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/elitebook-audio-resume-fix
+StandardOutput=append:/var/log/elitebook-audio-resume.log
+StandardError=append:/var/log/elitebook-audio-resume.log
+
+[Install]
+WantedBy=suspend.target suspend-then-hibernate.target

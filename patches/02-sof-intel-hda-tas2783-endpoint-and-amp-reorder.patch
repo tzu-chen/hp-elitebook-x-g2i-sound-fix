@@ -1,0 +1,62 @@
+--- a/sound/soc/sof/intel/hda.c
++++ b/sound/soc/sof/intel/hda.c
+@@ -1198,7 +1198,16 @@
+ 		}
+ 		for (j = 0; j < codec_info_list[i].dai_num; j++) {
+ 			/* Check if the endpoint is present by the SDCA DisCo table */
+-			if (!is_endpoint_present(sdw_device, codec_info_list[i].dais[j].dai_type))
++			if (!is_endpoint_present(sdw_device, codec_info_list[i].dais[j].dai_type) &&
++			    !(sdw_device->id.mfg_id == 0x0102 &&
++			      sdw_device->id.part_id == 0x0000))
++				/*
++				 * HP firmware (e.g. EliteBook X G2i, subsystem 8E86)
++				 * omits the SDCA DisCo description for the TI TAS2783
++				 * speaker amps, so the amp endpoint check fails and the
++				 * speakers are dropped. Force-include the endpoint for
++				 * TAS2783 (mfg 0x0102, part 0x0000).
++				 */
+ 				continue;
+ 
+ 			endpoints[ep_index].num = j;
+@@ -1414,6 +1423,41 @@
+ 			return NULL;
+ 	}
+ 
++	/*
++	 * HP EliteBook X G2i (8E86): 4 TAS2783 mono amps on ONE link, enumerated
++	 * 0x9,0xa (both physically RIGHT), 0xc,0xd (both LEFT). The SoundWire bus
++	 * packs stream slots by codec order, and the amp dai_link is split into
++	 * two 2ch PDIs each carrying a stereo copy (see create_sdw_dailink), so
++	 * the slot content is [L,R,L,R]. Order the amps [0xc,0x9,0xd,0xa] =
++	 * [L-woofer, R-woofer, L-tweeter, R-tweeter] so every amp's slot carries
++	 * its physical side. name_prefix/endpoints move with each device.
++	 */
++	for (i = 0; i < link_num; i++) {
++		static const u8 uid_order[] = { 0xc, 0x9, 0xd, 0xa };
++		struct snd_soc_acpi_adr_device *adr_d =
++			(struct snd_soc_acpi_adr_device *)links[i].adr_d;
++		int j, k;
++
++		if (links[i].num_adr != 4 || !adr_d)
++			continue;
++		for (j = 0; j < 4; j++)
++			if (((adr_d[j].adr >> 24) & 0xffff) != 0x0102 ||
++			    ((adr_d[j].adr >> 8) & 0xffff) != 0x0000)
++				break;
++		if (j != 4)
++			continue;
++		for (j = 0; j < 4; j++) {
++			for (k = j; k < 4; k++) {
++				if (((adr_d[k].adr >> 40) & 0xf) == uid_order[j]) {
++					if (k != j)
++						swap(adr_d[j], adr_d[k]);
++					break;
++				}
++			}
++		}
++		dev_info(sdev->dev, "tas2783 4-amp: reordered amps for 2-PDI stereo\n");
++	}
++
+ 	mach->drv_name = "sof_sdw";
+ 	mach->mach_params.links = links;
+ 	mach->mach_params.link_mask = link_mask;

@@ -1,0 +1,90 @@
+--- a/sound/soc/codecs/tas2783-sdw.c
++++ b/sound/soc/codecs/tas2783-sdw.c
+@@ -42,7 +42,7 @@
+ #define TIMEOUT_FW_DL_MS (3000)
+ #define FW_DL_OFFSET	84 /* binary file information */
+ #define FW_FL_HDR	20 /* minimum number of bytes in one chunk */
+-#define TAS2783_PROBE_TIMEOUT 5000
++#define TAS2783_PROBE_TIMEOUT 15000
+ #define TAS2783_CALI_GUID EFI_GUID(0x1f52d2a1, 0xbb3a, 0x457d, 0xbc, \
+ 				   0x09, 0x43, 0xa3, 0xf4, 0x31, 0x0a, 0x92)
+ 
+@@ -96,6 +96,7 @@
+ 	u8 rca_binaryname[64];
+ 	u8 dev_name[32];
+ 	bool hw_init;
++	unsigned int rx_mask;
+ 	/* wq for firmware download */
+ 	wait_queue_head_t fw_wait;
+ 	bool fw_dl_task_done;
+@@ -940,10 +941,44 @@
+ 	snd_sdw_params_to_config(substream, params,
+ 				 &stream_config, &port_config);
+ 	/* port 1 for playback */
+-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
++	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+ 		port_config.num = 1;
+-	else
++		/*
++		 * Each TAS2783 is a mono amp: take 1 stream channel per
++		 * device instead of the broadcast mask, so a 4-amp board
++		 * can receive 4 distinct channels. The STREAM SLOT comes
++		 * from sdw list packing order (sdw_compute_slave_ports
++		 * advances the block offset per slave), i.e. address order
++		 * 0x9,0xa,0xc,0xd -> slots 0..3; the mask only selects the
++		 * amp's input pin and must be 0x1 or 0x2 (DP1 ChannelEn
++		 * implements 2 bits; BIT(2)/BIT(3) read back as 0 =
++		 * channel never enabled). Use the amp's device-channel
++		 * identity: right amps (9,a) = ch2, left amps (c,d) = ch1.
++		 * set_tdm_slot() from a machine driver overrides this.
++		 */
++		if (!tas_dev->rx_mask) {
++			switch (sdw_peripheral->id.unique_id) {
++			case 0x9:
++			case 0xa:
++				tas_dev->rx_mask = BIT(1);
++				break;
++			case 0xc:
++			case 0xd:
++				tas_dev->rx_mask = BIT(0);
++				break;
++			}
++		}
++		if (tas_dev->rx_mask) {
++			port_config.ch_mask = tas_dev->rx_mask;
++			stream_config.ch_count = hweight32(tas_dev->rx_mask);
++		}
++		dev_info(tas_dev->dev,
++			 "tas stereo: uid=%#x ch_mask=%#x ch_count=%d params_ch=%d\n",
++			 sdw_peripheral->id.unique_id, port_config.ch_mask,
++			 stream_config.ch_count, params_channels(params));
++	} else {
+ 		port_config.num = 2;
++	}
+ 
+ 	ret = sdw_stream_add_slave(sdw_peripheral,
+ 				   &stream_config, &port_config, 1, sdw_stream);
+@@ -975,10 +1010,23 @@
+ 	return ret;
+ }
+ 
++static s32 tas_sdw_set_tdm_slot(struct snd_soc_dai *dai, unsigned int tx_mask,
++				unsigned int rx_mask, s32 slots, s32 slot_width)
++{
++	struct tas2783_prv *tas_dev =
++		snd_soc_component_get_drvdata(dai->component);
++
++	/* tx/rx are from the CPU point of view; our playback is tx_mask */
++	tas_dev->rx_mask = tx_mask;
++
++	return 0;
++}
++
+ static const struct snd_soc_dai_ops tas_dai_ops = {
+ 	.hw_params	= tas_sdw_hw_params,
+ 	.hw_free	= tas_sdw_pcm_hw_free,
+ 	.set_stream	= tas_set_sdw_stream,
++	.set_tdm_slot	= tas_sdw_set_tdm_slot,
+ 	.shutdown	= tas_sdw_shutdown,
+ };
+ 
