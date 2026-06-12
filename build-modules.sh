@@ -31,10 +31,13 @@ echo "    tree: $TREE"
 cd "$TREE"
 cp -f /usr/src/kernels/$KREL/.config .config
 cp -f /usr/src/kernels/$KREL/Module.symvers .
+# The spec only sets EXTRAVERSION in %build (which -bp doesn't run), so set it
+# here ourselves or vermagic comes out as bare "7.0.12" and modules won't load.
+sed -i "s/^EXTRAVERSION.*/EXTRAVERSION = ${KREL#"${KREL%%-*}"}/" Makefile
 # struct module must include BTF fields to match the running kernel
 ./scripts/config --enable CONFIG_DEBUG_INFO_BTF --enable CONFIG_DEBUG_INFO_BTF_MODULES
 make olddefconfig >/dev/null
-[[ "$(make -s kernelrelease)" == "$KREL" ]] || echo "WARN: kernelrelease $(make -s kernelrelease) != $KREL"
+[[ "$(make -s kernelrelease)" == "$KREL" ]] || { echo "FATAL: kernelrelease $(make -s kernelrelease) != $KREL — vermagic would mismatch"; exit 1; }
 make -j"$(nproc)" modules_prepare >/dev/null
 
 echo "==> Applying patches"
